@@ -57,11 +57,11 @@ def search(phrase, n_results=30):
 
 # Function to display categories with top keywords
 def display_categories():
-    # Destroy the main window to open a new one
-    root.destroy()
+    # Hide the main window
+    root.withdraw()
     
     # Create the categories window
-    categories_window = tk.Tk()
+    categories_window = tk.Toplevel()
     categories_window.title("Categories and Keywords")
     
     # Keep track of keywords that have already been used in other categories
@@ -103,7 +103,7 @@ def display_categories():
             articles_text.insert(tk.END, "---\n")
     
     # Create a button to go back to the main window
-    back_button = tk.Button(categories_window, text="Back to Search", command=categories_window.destroy)
+    back_button = tk.Button(categories_window, text="Back to Search", command=lambda: [categories_window.destroy(), root.deiconify()])
     back_button.pack(side=tk.BOTTOM, padx=10, pady=10)
     
     # Start the categories window's main loop
