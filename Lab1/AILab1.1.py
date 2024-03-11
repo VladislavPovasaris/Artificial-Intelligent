@@ -2,7 +2,8 @@ import tkinter as tk
 from tkinter import messagebox, scrolledtext
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.decomposition import LatentDirichletAllocation
+from sklearn.cluster import KMeans
+from sklearn.metrics.pairwise import cosine_similarity
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 import re
@@ -36,43 +37,77 @@ df['processed_text'] = df['processed_text'].apply(preprocess_text)
 vectorizer = TfidfVectorizer(stop_words='english')
 X = vectorizer.fit_transform(df['processed_text'])
 
-# Perform topic modeling using LDA
-lda = LatentDirichletAllocation(n_components=5, random_state=0, n_jobs=-1) # Adjust parameters as needed
-doc_topic_distribution = lda.fit_transform(X)
+# Perform clustering to categorize into five groups
+kmeans = KMeans(n_clusters=5, random_state=0).fit(X)
+df['group'] = kmeans.labels_
+
+# Function to perform search
+def search(phrase, n_results=30):
+    # Convert the input phrase to a vector
+    phrase_vector = vectorizer.transform([preprocess_text(phrase)])
+    
+    # Calculate cosine similarity between the phrase vector and all document vectors
+    similarities = cosine_similarity(phrase_vector, X).flatten()
+    
+    # Get the indices of the most similar documents
+    related_docs_indices = similarities.argsort()[::-1][:n_results]  # Sort in descending order and limit to n_results
+    
+    # Return the most similar articles and their similarities
+    return df.iloc[related_docs_indices], similarities[related_docs_indices]
 
 # Function to display categories with top keywords
 def display_categories():
+    # Destroy the main window to open a new one
+    root.destroy()
+    
     # Create the categories window
-    categories_window = tk.Toplevel()
+    categories_window = tk.Tk()
     categories_window.title("Categories and Keywords")
-
-    # Get top keywords for each topic
-    feature_names = vectorizer.get_feature_names_out()
-    for topic_idx, topic in enumerate(lda.components_):
-        top_keywords_idx = topic.argsort()[:-11:-1]
-        top_keywords = [feature_names[i] for i in top_keywords_idx]
-
-        # Create a frame for each topic
-        topic_frame = tk.Frame(categories_window)
-        topic_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-
-        # Create a label for the topic with top keywords as the text
-        topic_label = tk.Label(topic_frame, text=f"Topic {topic_idx + 1}: {', '.join(top_keywords)}")
-        topic_label.pack(side=tk.TOP, fill=tk.X)
-
-        # Create a ScrolledText widget to display the articles for this topic
-        articles_text = scrolledtext.ScrolledText(topic_frame, height=10, width=80, wrap=tk.WORD)
+    
+    # Keep track of keywords that have already been used in other categories
+    used_keywords = set()
+    
+    # Sort the groups in ascending order
+    for group_number in sorted(df['group'].unique()):
+        group_frame = tk.Frame(categories_window)
+        group_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        
+        group_articles = df[df['group'] == group_number]
+        
+        # Extract top keywords for the category
+        group_vectorizer = TfidfVectorizer(stop_words='english', max_features=100)
+        group_X = group_vectorizer.fit_transform(group_articles['processed_text'])
+        feature_array = np.array(group_vectorizer.get_feature_names_out())
+        tfidf_sorting = np.argsort(group_X.toarray()).flatten()[::-1]
+        
+        # Filter out keywords that have already been used in other categories
+        top_keywords = [word for word in feature_array[tfidf_sorting] if word not in used_keywords][:10]
+        
+        # Update the used_keywords set with the keywords used in this category
+        used_keywords.update(top_keywords)
+        
+        # Create a label for the group with the top keywords as the text
+        group_label = tk.Label(group_frame, text=f"Group {group_number +1}: {', '.join(top_keywords)}")
+        group_label.pack(side=tk.TOP, fill=tk.X)
+        
+        # Create a ScrolledText widget to display the articles
+        articles_text = scrolledtext.ScrolledText(group_frame, height=10, width=80, wrap=tk.WORD)
         articles_text.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-
-        # Find articles most associated with this topic
-        top_articles_indices = np.argsort(doc_topic_distribution[:, topic_idx])[::-1][:10]
-        for idx in top_articles_indices:
-            articles_text.insert(tk.END, f"Title: {df.iloc[idx]['title']}\n")
-            articles_text.insert(tk.END, f"Abstract: {df.iloc[idx]['abstract']}\n")
-            articles_text.insert(tk.END, f"Published: {df.iloc[idx]['published']}\n")
-            articles_text.insert(tk.END, f"Authors: {df.iloc[idx]['authors']}\n")
-            articles_text.insert(tk.END, f"URL: {df.iloc[idx]['url']}\n")
+        
+        for index, row in group_articles.iterrows():
+            articles_text.insert(tk.END, f"Title: {row['title']}\n")
+            articles_text.insert(tk.END, f"Abstract: {row['abstract']}\n")
+            articles_text.insert(tk.END, f"Published: {row['published']}\n")
+            articles_text.insert(tk.END, f"Authors: {row['authors']}\n")
+            articles_text.insert(tk.END, f"URL: {row['url']}\n")
             articles_text.insert(tk.END, "---\n")
+    
+    # Create a button to go back to the main window
+    back_button = tk.Button(categories_window, text="Back to Search", command=categories_window.destroy)
+    back_button.pack(side=tk.BOTTOM, padx=10, pady=10)
+    
+    # Start the categories window's main loop
+    categories_window.mainloop()
 
 # GUI-based search
 def perform_search():
@@ -80,9 +115,18 @@ def perform_search():
     if not search_phrase.strip():
         messagebox.showerror("Error", "Please enter a search phrase.")
         return
-
-    # Perform a dummy search for demonstration purposes
-    messagebox.showinfo("Search", "This is a dummy search. No actual search functionality implemented.")
+    
+    results, similarities = search(search_phrase)
+    result_text.delete(1.0, tk.END)
+    for i, (index, row) in enumerate(results.iterrows()):
+        result_text.insert(tk.END, f"Title: {row['title']}\n")
+        result_text.insert(tk.END, f"Abstract: {row['abstract']}\n")
+        result_text.insert(tk.END, f"Published: {row['published']}\n")
+        result_text.insert(tk.END, f"Authors: {row['authors']}\n")
+        result_text.insert(tk.END, f"URL: {row['url']}\n")
+        result_text.insert(tk.END, f"Group: {row['group']}\n")
+        result_text.insert(tk.END, f"Similarity: {similarities[i]}\n")
+        result_text.insert(tk.END, "---\n")
 
 # Create the main window
 root = tk.Tk()
@@ -95,6 +139,10 @@ entry.pack(side=tk.TOP, padx=10, pady=10)
 # Create a search button
 search_button = tk.Button(root, text="Search", command=perform_search)
 search_button.pack(side=tk.TOP, padx=10, pady=10)
+
+# Create a text widget to display search results
+result_text = scrolledtext.ScrolledText(root, height=20, width=80, wrap=tk.WORD)
+result_text.pack(side=tk.TOP, padx=10, pady=10)
 
 # Create a button to display categories
 categories_button = tk.Button(root, text="Display Categories", command=display_categories)
