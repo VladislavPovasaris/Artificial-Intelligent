@@ -124,7 +124,7 @@ def perform_search():
         result_text.insert(tk.END, f"Published: {row['published']}\n")
         result_text.insert(tk.END, f"Authors: {row['authors']}\n")
         result_text.insert(tk.END, f"URL: {row['url']}\n")
-        result_text.insert(tk.END, f"Group: {row['group']}\n")
+        result_text.insert(tk.END, f"Group: {row['group']+1}\n")
         result_text.insert(tk.END, f"Similarity: {similarities[i]}\n")
         result_text.insert(tk.END, "---\n")
 
